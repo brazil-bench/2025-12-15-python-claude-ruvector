@@ -52,6 +52,8 @@ const AUTO_SAVE = process.env.RUVECTOR_AUTO_SAVE !== 'false';
 const VECTORS_FILE = path.join(DATA_DIR, 'vectors.json');
 const METADATA_FILE = path.join(DATA_DIR, 'metadata.json');
 const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
+// RuVector's internal database file (created by the Rust library)
+const RUVECTOR_DB_FILE = path.join(__dirname, 'ruvector.db');
 
 // Default embedding dimension
 const DEFAULT_DIMENSION = 384;
@@ -122,6 +124,13 @@ function saveData() {
  */
 function loadData() {
     try {
+        // Always clear RuVector's internal database on startup
+        // This ensures we start with a clean state and our JSON files are the source of truth
+        if (fs.existsSync(RUVECTOR_DB_FILE)) {
+            fs.unlinkSync(RUVECTOR_DB_FILE);
+            console.log('[RuVector] Cleared stale internal database');
+        }
+
         if (!fs.existsSync(CONFIG_FILE)) {
             console.log('[RuVector] No saved data found');
             return { success: true, message: 'No saved data found', count: 0 };
@@ -129,7 +138,29 @@ function loadData() {
 
         // Load config
         const config = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
-        currentDimension = config.dimension || DEFAULT_DIMENSION;
+        const savedDimension = config.dimension || DEFAULT_DIMENSION;
+
+        // Load vectors first to validate dimension
+        let vectorsData = [];
+        if (fs.existsSync(VECTORS_FILE)) {
+            vectorsData = JSON.parse(fs.readFileSync(VECTORS_FILE, 'utf8'));
+        }
+
+        // Validate: check if saved vectors match config dimension
+        if (vectorsData.length > 0) {
+            const actualDimension = vectorsData[0].vector.length;
+            if (actualDimension !== savedDimension) {
+                console.log(`[RuVector] Data corruption detected: config says dimension ${savedDimension}, but vectors have dimension ${actualDimension}`);
+                console.log('[RuVector] Clearing corrupted data and starting fresh');
+                // Clear corrupted files
+                if (fs.existsSync(VECTORS_FILE)) fs.unlinkSync(VECTORS_FILE);
+                if (fs.existsSync(METADATA_FILE)) fs.unlinkSync(METADATA_FILE);
+                if (fs.existsSync(CONFIG_FILE)) fs.unlinkSync(CONFIG_FILE);
+                return { success: true, message: 'Cleared corrupted data', count: 0 };
+            }
+        }
+
+        currentDimension = savedDimension;
 
         // Initialize vector database
         vectorDb = new ruvector.VectorDB({ dimensions: currentDimension });
@@ -143,19 +174,15 @@ function loadData() {
             }
         }
 
-        // Load vectors and insert into RuVector
-        if (fs.existsSync(VECTORS_FILE)) {
-            const vectorsData = JSON.parse(fs.readFileSync(VECTORS_FILE, 'utf8'));
+        // Load vectors into RuVector
+        if (vectorsData.length > 0) {
+            const entries = vectorsData.map(item => ({
+                id: item.id,
+                vector: ruvector.toFloat32Array(item.vector),
+                metadata: JSON.stringify(metadata.get(item.id) || {})
+            }));
 
-            if (vectorsData.length > 0) {
-                const entries = vectorsData.map(item => ({
-                    id: item.id,
-                    vector: ruvector.toFloat32Array(item.vector),
-                    metadata: JSON.stringify(metadata.get(item.id) || {})
-                }));
-
-                vectorDb.insertBatch(entries);
-            }
+            vectorDb.insertBatch(entries);
         }
 
         isDirty = false;
@@ -189,8 +216,23 @@ function initDb(dimension = DEFAULT_DIMENSION) {
  */
 function insertVector(id, vector, meta = {}) {
     try {
+        const newDimension = vector.length;
+
+        // Initialize if not yet initialized
         if (!vectorDb) {
-            initDb(vector.length);
+            initDb(newDimension);
+        } else if (newDimension !== currentDimension) {
+            // Dimension mismatch - cannot change dimensions in a running server
+            // Due to RuVector's internal state management, changing dimensions requires a server restart
+            const errorMsg = `Dimension mismatch: database has dimension ${currentDimension}, but received vector with dimension ${newDimension}. To change dimensions: 1) Call /clear endpoint, 2) Restart the server. This is required due to RuVector's internal state management.`;
+            console.log(`[RuVector] ${errorMsg}`);
+            return {
+                success: false,
+                error: errorMsg,
+                currentDimension: currentDimension,
+                requestedDimension: newDimension,
+                action: 'restart_required'
+            };
         }
 
         // Convert to Float32Array if needed
@@ -224,8 +266,27 @@ function insertVector(id, vector, meta = {}) {
  */
 function insertBatch(items) {
     try {
-        if (!vectorDb && items.length > 0) {
-            initDb(items[0].vector.length);
+        if (items.length === 0) {
+            return { success: true, inserted: 0 };
+        }
+
+        const newDimension = items[0].vector.length;
+
+        // Initialize if not yet initialized
+        if (!vectorDb) {
+            initDb(newDimension);
+        } else if (newDimension !== currentDimension) {
+            // Dimension mismatch - cannot change dimensions in a running server
+            // Due to RuVector's internal state management, changing dimensions requires a server restart
+            const errorMsg = `Dimension mismatch: database has dimension ${currentDimension}, but received vectors with dimension ${newDimension}. To change dimensions: 1) Call /clear endpoint, 2) Restart the server. This is required due to RuVector's internal state management.`;
+            console.log(`[RuVector] ${errorMsg}`);
+            return {
+                success: false,
+                error: errorMsg,
+                currentDimension: currentDimension,
+                requestedDimension: newDimension,
+                action: 'restart_required'
+            };
         }
 
         // Prepare entries for batch insert
@@ -304,10 +365,16 @@ function clearDb() {
         metadata.clear();
         isDirty = true;
 
-        // Also clear persisted data
+        // Clear persisted data (our JSON files)
         if (fs.existsSync(VECTORS_FILE)) fs.unlinkSync(VECTORS_FILE);
         if (fs.existsSync(METADATA_FILE)) fs.unlinkSync(METADATA_FILE);
         if (fs.existsSync(CONFIG_FILE)) fs.unlinkSync(CONFIG_FILE);
+
+        // Also clear RuVector's internal database file
+        if (fs.existsSync(RUVECTOR_DB_FILE)) {
+            fs.unlinkSync(RUVECTOR_DB_FILE);
+            console.log('[RuVector] Deleted internal database file');
+        }
 
         console.log('[RuVector] Cleared all data');
         return { success: true };

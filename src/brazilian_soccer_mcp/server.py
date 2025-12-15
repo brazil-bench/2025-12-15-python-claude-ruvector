@@ -45,9 +45,9 @@ import logging
 from typing import Any, Optional
 
 try:
-    from mcp.server import Server
+    from mcp.server import Server, InitializationOptions
     from mcp.server.stdio import stdio_server
-    from mcp.types import Tool, TextContent
+    from mcp.types import Tool, TextContent, ServerCapabilities, ToolsCapability
     HAS_MCP = True
 except ImportError:
     HAS_MCP = False
@@ -81,18 +81,25 @@ class BrazilianSoccerMCPServer:
         if self._initialized:
             return
 
-        logger.info("Loading Brazilian soccer data...")
+        logger.info("Loading Brazilian soccer data from CSV files...")
         self.data_loader.load_all()
 
         logger.info(f"Loaded {self.data_loader.total_matches} matches")
         logger.info(f"Loaded {self.data_loader.total_players} players")
         logger.info(f"Loaded {self.data_loader.total_teams} teams")
 
-        # Index data in vector store
-        logger.info("Indexing data in vector store...")
-        self.vector_store.index_matches(self.data_loader.matches[:5000])  # Limit for memory
-        self.vector_store.index_players(self.data_loader.players)
-        logger.info(f"Indexed {self.vector_store.size} items in vector store")
+        # Check if RuVector already has indexed data
+        if self.vector_store.has_data:
+            stats = self.vector_store.stats()
+            logger.info(f"RuVector already has {stats.get('count', 0)} indexed items - skipping indexing")
+            logger.info("Using existing indexed data from previous run")
+        else:
+            # First run - index data into RuVector
+            logger.info("First run detected - indexing data in RuVector...")
+            self.vector_store.index_matches(self.data_loader.matches[:5000])  # Limit for memory
+            self.vector_store.index_players(self.data_loader.players)
+            logger.info(f"Indexed {self.vector_store.size} items in RuVector")
+            logger.info("Data will be persisted for future runs")
 
         # Initialize query handler
         self.query_handler = QueryHandler(self.data_loader, self.vector_store)
@@ -386,9 +393,17 @@ async def run_mcp_server():
         result = soccer_server.handle_tool_call(name, arguments)
         return [TextContent(type="text", text=json.dumps(result, indent=2, default=str))]
 
-    # Run the server
+    # Run the server with initialization options
+    init_options = InitializationOptions(
+        server_name="brazilian-soccer-mcp",
+        server_version="1.0.0",
+        capabilities=ServerCapabilities(
+            tools=ToolsCapability(listChanged=False)
+        )
+    )
+
     async with stdio_server() as (read_stream, write_stream):
-        await server.run(read_stream, write_stream)
+        await server.run(read_stream, write_stream, init_options)
 
 
 def main():

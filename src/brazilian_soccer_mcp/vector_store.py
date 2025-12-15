@@ -324,6 +324,7 @@ class VectorStore:
         """
         self.dimension = dimension
         self.entries: List[VectorEntry] = []
+        self._data_loaded = False
 
         # Initialize RuVector client
         url = ruvector_url or RUVECTOR_URL
@@ -335,8 +336,20 @@ class VectorStore:
                 "Please start the server with: node ruvector_server.js"
             )
 
-        # Initialize ruvector with dimension
-        self.client.init(dimension)
+        # Check if RuVector already has data (from previous run)
+        stats = self.client.stats()
+        existing_count = stats.get("count", 0)
+        existing_dimension = stats.get("dimension", dimension)
+
+        if existing_count > 0:
+            # Data already exists - don't reinitialize!
+            self.dimension = existing_dimension
+            self._data_loaded = True
+            # Load entries metadata from RuVector
+            self._load_entries_from_ruvector()
+        else:
+            # No existing data - initialize fresh
+            self.client.init(dimension)
 
         # Initialize embedder (always Python-side)
         if HAS_TRANSFORMERS:
@@ -347,6 +360,20 @@ class VectorStore:
                 self.embedder = SimpleEmbedder(dimension)
         else:
             self.embedder = SimpleEmbedder(dimension)
+
+    def _load_entries_from_ruvector(self) -> None:
+        """Load entry metadata from RuVector's persisted data."""
+        # RuVector stores metadata with each vector
+        # We need to rebuild our local entries list from it
+        # For now, we'll do a dummy search to get all entries
+        # This is a workaround since RuVector doesn't have a "list all" endpoint
+        pass  # Entries will be empty but searches will still work via RuVector
+
+    @property
+    def has_data(self) -> bool:
+        """Check if data has been loaded/indexed."""
+        stats = self.client.stats()
+        return stats.get("count", 0) > 0
 
     def _embed(self, texts: List[str]) -> np.ndarray:
         """Generate embeddings for texts."""
@@ -429,7 +456,8 @@ class VectorStore:
         Returns:
             List of (entry, similarity_score) tuples
         """
-        if not self.entries:
+        # Check if RuVector has any data
+        if not self.has_data and not self.entries:
             return []
 
         # Embed query
@@ -442,16 +470,30 @@ class VectorStore:
             raise RuVectorConnectionError(f"Search failed: {response.get('error', 'Unknown error')}")
 
         results = []
-        # Build ID to entry lookup
+        # Build ID to entry lookup from local cache
         id_to_entry = {e.id: e for e in self.entries}
 
         for result in response.get("results", []):
+            # Get metadata either from local cache or from RuVector response
             entry = id_to_entry.get(result["id"])
-            if not entry:
-                continue
+            metadata = result.get("metadata", {})
+
+            if entry:
+                # Use local entry
+                meta_to_check = entry.metadata
+            else:
+                # Use metadata from RuVector (when loaded from persistence)
+                meta_to_check = metadata
+                # Create a temporary entry from RuVector metadata
+                entry = VectorEntry(
+                    id=result["id"],
+                    vector=np.array([]),  # We don't have the vector locally
+                    metadata=metadata,
+                    text=""
+                )
 
             # Apply filter if provided
-            if filter_fn and not filter_fn(entry.metadata):
+            if filter_fn and not filter_fn(meta_to_check):
                 continue
 
             results.append((entry, result["score"]))
