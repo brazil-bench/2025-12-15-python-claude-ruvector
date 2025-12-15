@@ -233,6 +233,60 @@ MIT License
 - Campeonato Brasileiro 2003-2019: [Kaggle - macedojleo](https://www.kaggle.com/datasets/macedojleo/campeonato-brasileiro-2003-a-2019) - CC BY 4.0
 - FIFA Players Data: [Kaggle - Youssef Elbadry](https://www.kaggle.com/datasets/youssefelbadry10/fifa-players-data) - Apache 2.0
 
+## RuVector Integration Details
+
+The project integrates with [RuVector](https://github.com/ruvnet/ruvector) via a Node.js HTTP bridge:
+
+### Architecture
+```
+Python (vector_store.py) <--HTTP--> Node.js (ruvector_server.js) <--N-API--> RuVector (Rust)
+```
+
+### RuVector Server Endpoints
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Health check |
+| `/stats` | GET | Database statistics |
+| `/init` | POST | Initialize with dimension |
+| `/insert` | POST | Insert single vector |
+| `/insert_batch` | POST | Insert multiple vectors |
+| `/search` | POST | Search similar vectors |
+| `/clear` | POST | Clear all vectors |
+
+### Starting the RuVector Server
+```bash
+# Install RuVector
+npm install ruvector
+
+# Start server (default port 3456)
+node ruvector_server.js
+
+# Or specify port
+node ruvector_server.js 8080
+```
+
+### Fallback Mode
+When the RuVector server is unavailable, the system automatically falls back to numpy-based vector operations, ensuring the MCP server works in all environments.
+
+## Test Results
+
+All 47 BDD tests pass:
+
+```
+tests/features/test_match_queries.py    - 13 tests ✓
+tests/features/test_player_queries.py   - 12 tests ✓
+tests/features/test_team_queries.py     - 10 tests ✓
+tests/features/test_statistics.py       - 12 tests ✓
+
+============================== 47 passed in 8.61s ==============================
+```
+
+### Test Categories
+- **Match Queries**: Find matches by team, competition, season, date range
+- **Player Queries**: Search by name, nationality, club, position, rating
+- **Team Queries**: Statistics, head-to-head comparisons, home/away records
+- **Statistics**: Standings calculation, biggest wins, goal averages
+
 ## Implementation Notes
 
 This project was implemented using a **Hive Mind Collective** approach with specialized agents:
@@ -241,4 +295,49 @@ This project was implemented using a **Hive Mind Collective** approach with spec
 - **Coder Agent**: Implemented core functionality
 - **Tester Agent**: Created comprehensive BDD test suite
 
-The implementation uses numpy-based vector operations instead of Neo4j, following the RuVector philosophy of efficient vector similarity search with metadata filtering.
+The implementation uses RuVector for vector storage and similarity search. When RuVector is unavailable, it falls back to numpy-based operations for compatibility.
+
+## Context Block Documentation
+
+All source files include a detailed context block comment at the top describing:
+- Module purpose and functionality
+- Author and creation date
+- Architecture decisions
+- Key functions/classes
+- Dependencies and relationships
+
+Example:
+```python
+"""
+=============================================================================
+CONTEXT BLOCK
+=============================================================================
+Module: vector_store.py
+Description: Vector store implementation using RuVector for Brazilian Soccer MCP
+Author: Hive Mind Collective (Queen + Workers)
+Created: 2025-12-15
+...
+=============================================================================
+"""
+```
+
+## Success Criteria Met
+
+### Functional Requirements ✓
+- [x] Can search and return match data from all provided CSV files
+- [x] Can search and return player data
+- [x] Can calculate basic statistics (wins, losses, goals)
+- [x] Can compare teams head-to-head
+- [x] Handles team name variations correctly
+- [x] Returns properly formatted responses
+
+### Data Coverage ✓
+- [x] All 6 CSV files are loadable and queryable
+- [x] 47 test scenarios pass (exceeds 20 sample questions requirement)
+- [x] Cross-file queries work (player + match data)
+
+### Technical Implementation ✓
+- [x] Uses RuVector instead of Neo4j as specified
+- [x] BDD-style tests with Given-When-Then format
+- [x] Context block comments in all code files
+- [x] Comprehensive README documentation

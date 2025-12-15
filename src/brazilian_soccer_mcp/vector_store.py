@@ -3,29 +3,41 @@
 CONTEXT BLOCK
 =============================================================================
 Module: vector_store.py
-Description: Vector store implementation using numpy for Brazilian Soccer MCP
+Description: Vector store implementation using RuVector for Brazilian Soccer MCP
 Author: Hive Mind Collective (Queen + Workers)
 Created: 2025-12-15
+Updated: 2025-12-15
 
 Purpose:
     Implement a vector similarity search store for natural language queries
-    about Brazilian soccer data. This module provides:
-    - Text embedding generation using sentence-transformers
-    - Vector storage with metadata
-    - Similarity search using cosine similarity
+    about Brazilian soccer data using RuVector (https://github.com/ruvnet/ruvector).
+
+    This module provides:
+    - Text embedding generation using simple hash-based or sentence-transformers
+    - Vector storage via RuVector HTTP server
+    - Similarity search using RuVector's native cosine similarity
     - Support for semantic queries like "find similar matches"
 
 Architecture:
-    Since RuVector is primarily a Rust/JavaScript library, we implement a
-    Python-native vector store using:
-    - numpy: For efficient vector operations
-    - sentence-transformers: For text embeddings
-    - scipy: For similarity calculations
+    RuVector is a Rust-based vector database with Node.js bindings. Since there
+    are no Python bindings, we use an HTTP bridge approach:
 
-    This approach maintains the "use RuVector instead of Neo4j" spirit by:
-    - Using vector similarity search instead of graph traversal
-    - Storing embeddings for semantic search
-    - Supporting hybrid keyword + semantic queries
+    Python (this module) <--HTTP--> Node.js (ruvector_server.js) <--N-API--> RuVector (Rust)
+
+    The ruvector_server.js exposes these endpoints:
+    - POST /init          - Initialize the vector database
+    - POST /insert        - Insert a vector with ID and metadata
+    - POST /insert_batch  - Insert multiple vectors
+    - POST /search        - Search for similar vectors
+    - POST /clear         - Clear all vectors
+    - GET  /stats         - Get database statistics
+    - GET  /health        - Health check
+
+RuVector Integration:
+    - Uses actual RuVector for vector storage and similarity search
+    - Falls back to numpy-based implementation if server unavailable
+    - Maintains metadata in sync with vector storage
+    - Provides sub-millisecond similarity search via native Rust code
 
 Vector Indices:
     - matches_index: Embeddings of match descriptions
@@ -39,7 +51,13 @@ from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 import json
 import os
+import subprocess
+import time
+import signal
+import atexit
 from pathlib import Path
+import urllib.request
+import urllib.error
 
 # Use simpler embedding approach to avoid heavy dependencies
 # In production, you would use sentence-transformers
@@ -50,6 +68,12 @@ except ImportError:
     HAS_TRANSFORMERS = False
 
 from .models import Match, Player, TeamStats
+
+
+# Default RuVector server configuration
+RUVECTOR_HOST = os.environ.get("RUVECTOR_HOST", "localhost")
+RUVECTOR_PORT = int(os.environ.get("RUVECTOR_PORT", "3456"))
+RUVECTOR_URL = f"http://{RUVECTOR_HOST}:{RUVECTOR_PORT}"
 
 
 @dataclass
@@ -102,36 +126,208 @@ class SimpleEmbedder:
         return np.array(vectors)
 
 
+class RuVectorClient:
+    """
+    HTTP client for RuVector server.
+
+    Communicates with the Node.js ruvector_server.js which wraps
+    the native RuVector Rust library.
+    """
+
+    def __init__(self, base_url: str = RUVECTOR_URL, auto_start: bool = True):
+        """
+        Initialize RuVector client.
+
+        Args:
+            base_url: URL of the ruvector server
+            auto_start: Whether to auto-start the server if not running
+        """
+        self.base_url = base_url
+        self._server_process = None
+        self._connected = False
+
+        # Check if server is already running
+        if self._check_health():
+            self._connected = True
+        elif auto_start:
+            self._ensure_server()
+
+    def _ensure_server(self) -> bool:
+        """Ensure the ruvector server is running."""
+        if self._check_health():
+            self._connected = True
+            return True
+
+        # Try to start the server
+        return self._start_server()
+
+    def _check_health(self) -> bool:
+        """Check if server is healthy."""
+        try:
+            req = urllib.request.Request(f"{self.base_url}/health")
+            with urllib.request.urlopen(req, timeout=2) as resp:
+                data = json.loads(resp.read().decode())
+                return data.get("status") == "ok"
+        except Exception:
+            return False
+
+    def _start_server(self) -> bool:
+        """Start the ruvector server as a subprocess."""
+        try:
+            # Find the server script
+            script_path = Path(__file__).parent.parent.parent / "ruvector_server.js"
+            if not script_path.exists():
+                # Try project root
+                script_path = Path(__file__).parent.parent.parent.parent / "ruvector_server.js"
+
+            if not script_path.exists():
+                return False
+
+            # Start server in background
+            self._server_process = subprocess.Popen(
+                ["node", str(script_path), str(RUVECTOR_PORT)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                preexec_fn=os.setsid if os.name != 'nt' else None
+            )
+
+            # Wait for server to start
+            for _ in range(10):
+                time.sleep(0.5)
+                if self._check_health():
+                    self._connected = True
+                    # Register cleanup
+                    atexit.register(self._stop_server)
+                    return True
+
+            return False
+        except Exception:
+            return False
+
+    def _stop_server(self) -> None:
+        """Stop the server subprocess."""
+        if self._server_process:
+            try:
+                if os.name != 'nt':
+                    os.killpg(os.getpgid(self._server_process.pid), signal.SIGTERM)
+                else:
+                    self._server_process.terminate()
+            except Exception:
+                pass
+            self._server_process = None
+
+    def _request(self, endpoint: str, method: str = "GET", data: Dict = None) -> Dict:
+        """Make HTTP request to server."""
+        url = f"{self.base_url}{endpoint}"
+
+        if data is not None:
+            body = json.dumps(data).encode('utf-8')
+            req = urllib.request.Request(url, data=body, method=method)
+            req.add_header('Content-Type', 'application/json')
+        else:
+            req = urllib.request.Request(url, method=method)
+
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return json.loads(resp.read().decode())
+        except urllib.error.URLError as e:
+            return {"success": False, "error": str(e)}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @property
+    def is_connected(self) -> bool:
+        """Check if connected to server."""
+        return self._connected and self._check_health()
+
+    def init(self, dimension: int = 384) -> Dict:
+        """Initialize the vector database."""
+        return self._request("/init", "POST", {"dimension": dimension})
+
+    def insert(self, id: str, vector: List[float], metadata: Dict = None) -> Dict:
+        """Insert a single vector."""
+        return self._request("/insert", "POST", {
+            "id": id,
+            "vector": vector,
+            "metadata": metadata or {}
+        })
+
+    def insert_batch(self, items: List[Dict]) -> Dict:
+        """
+        Insert multiple vectors.
+
+        Args:
+            items: List of {"id": str, "vector": list, "metadata": dict}
+        """
+        return self._request("/insert_batch", "POST", {"items": items})
+
+    def search(self, vector: List[float], k: int = 10) -> Dict:
+        """
+        Search for similar vectors.
+
+        Returns:
+            {"success": bool, "results": [{"id": str, "score": float, "metadata": dict}]}
+        """
+        return self._request("/search", "POST", {"vector": vector, "k": k})
+
+    def clear(self) -> Dict:
+        """Clear all vectors."""
+        return self._request("/clear", "POST")
+
+    def stats(self) -> Dict:
+        """Get database statistics."""
+        return self._request("/stats", "GET")
+
+
 class VectorStore:
     """
     Vector store for semantic search over Brazilian soccer data.
 
-    This implementation provides RuVector-like functionality using numpy
-    for vector operations, enabling:
-    - Semantic search over matches, players, and teams
-    - Similarity-based queries
-    - Metadata filtering combined with vector search
+    This implementation uses RuVector via HTTP for vector operations:
+    - Native Rust-based similarity search (sub-millisecond)
+    - Automatic server management
+    - Falls back to numpy if server unavailable
 
     Attributes:
-        embedder: Text embedding model
-        entries: List of all vector entries
+        embedder: Text embedding model (Python-side)
+        client: RuVector HTTP client
         dimension: Vector dimension
+        entries: Local cache of entries for metadata access
     """
 
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2", dimension: int = 384):
+    def __init__(
+        self,
+        model_name: str = "all-MiniLM-L6-v2",
+        dimension: int = 384,
+        ruvector_url: str = None,
+        auto_start_server: bool = True
+    ):
         """
         Initialize the vector store.
 
         Args:
             model_name: Sentence transformer model name
             dimension: Vector dimension (384 for MiniLM)
+            ruvector_url: Optional custom RuVector server URL
+            auto_start_server: Whether to auto-start server if not running
         """
         self.dimension = dimension
         self.entries: List[VectorEntry] = []
         self._vectors: Optional[np.ndarray] = None
         self._index_dirty = True
+        self._use_ruvector = True
 
-        # Initialize embedder
+        # Initialize RuVector client
+        url = ruvector_url or RUVECTOR_URL
+        self.client = RuVectorClient(url, auto_start=auto_start_server)
+
+        if not self.client.is_connected:
+            self._use_ruvector = False
+        else:
+            # Initialize ruvector with dimension
+            self.client.init(dimension)
+
+        # Initialize embedder (always Python-side)
         if HAS_TRANSFORMERS:
             try:
                 self.embedder = SentenceTransformer(model_name)
@@ -151,7 +347,7 @@ class VectorStore:
             return self.embedder.encode(texts)
 
     def _rebuild_index(self) -> None:
-        """Rebuild the vector index."""
+        """Rebuild the vector index (numpy fallback)."""
         if not self.entries:
             self._vectors = None
         else:
@@ -177,6 +373,10 @@ class VectorStore:
         self.entries.append(entry)
         self._index_dirty = True
 
+        # Insert into RuVector
+        if self._use_ruvector:
+            self.client.insert(id, vector.tolist(), metadata)
+
     def add_batch(self, items: List[Tuple[str, str, Dict[str, Any]]]) -> None:
         """
         Add multiple entries efficiently.
@@ -190,6 +390,9 @@ class VectorStore:
         texts = [item[1] for item in items]
         vectors = self._embed(texts)
 
+        # Prepare for RuVector batch insert
+        ruvector_items = []
+
         for (id, text, metadata), vector in zip(items, vectors):
             entry = VectorEntry(
                 id=id,
@@ -199,7 +402,17 @@ class VectorStore:
             )
             self.entries.append(entry)
 
+            ruvector_items.append({
+                "id": id,
+                "vector": vector.tolist(),
+                "metadata": metadata or {}
+            })
+
         self._index_dirty = True
+
+        # Batch insert into RuVector
+        if self._use_ruvector and ruvector_items:
+            self.client.insert_batch(ruvector_items)
 
     def search(
         self,
@@ -221,11 +434,37 @@ class VectorStore:
         if not self.entries:
             return []
 
-        if self._index_dirty:
-            self._rebuild_index()
-
         # Embed query
         query_vector = self._embed([query])[0]
+
+        # Try RuVector first
+        if self._use_ruvector:
+            response = self.client.search(query_vector.tolist(), k * 2)  # Get more for filtering
+
+            if response.get("success") and response.get("results"):
+                results = []
+                # Build ID to entry lookup
+                id_to_entry = {e.id: e for e in self.entries}
+
+                for result in response["results"]:
+                    entry = id_to_entry.get(result["id"])
+                    if not entry:
+                        continue
+
+                    # Apply filter if provided
+                    if filter_fn and not filter_fn(entry.metadata):
+                        continue
+
+                    results.append((entry, result["score"]))
+
+                    if len(results) >= k:
+                        break
+
+                return results
+
+        # Fallback to numpy-based search
+        if self._index_dirty:
+            self._rebuild_index()
 
         # Calculate cosine similarities
         similarities = self._cosine_similarity(query_vector, self._vectors)
@@ -422,10 +661,18 @@ class VectorStore:
         self._vectors = None
         self._index_dirty = True
 
+        if self._use_ruvector:
+            self.client.clear()
+
     @property
     def size(self) -> int:
         """Number of entries in the store."""
         return len(self.entries)
+
+    @property
+    def using_ruvector(self) -> bool:
+        """Whether RuVector is being used (vs numpy fallback)."""
+        return self._use_ruvector
 
     def save(self, path: str) -> None:
         """
@@ -479,6 +726,8 @@ class VectorStore:
                 metadata = json.load(f)
 
             self.entries = []
+            ruvector_items = []
+
             for i, item in enumerate(metadata):
                 vector = self._vectors[i] if self._vectors is not None else np.zeros(self.dimension)
                 entry = VectorEntry(
@@ -488,5 +737,16 @@ class VectorStore:
                     text=item["text"],
                 )
                 self.entries.append(entry)
+
+                ruvector_items.append({
+                    "id": item["id"],
+                    "vector": vector.tolist(),
+                    "metadata": item["metadata"]
+                })
+
+            # Reload into RuVector
+            if self._use_ruvector and ruvector_items:
+                self.client.clear()
+                self.client.insert_batch(ruvector_items)
 
         self._index_dirty = False
