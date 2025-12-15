@@ -12,6 +12,9 @@ htmlcov/
 # Node modules
 node_modules/
 
+# RuVector persisted data
+ruvector_data/
+
 # Hive Mind session files
 .hive-mind/
 .claude-flow/

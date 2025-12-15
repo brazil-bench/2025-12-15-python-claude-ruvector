@@ -252,6 +252,8 @@ Python (vector_store.py) <--HTTP--> Node.js (ruvector_server.js) <--N-API--> RuV
 | `/insert_batch` | POST | Insert multiple vectors |
 | `/search` | POST | Search similar vectors |
 | `/clear` | POST | Clear all vectors |
+| `/save` | POST | Manually save to disk |
+| `/load` | POST | Manually load from disk |
 
 ### Starting the RuVector Server (Required)
 ```bash
@@ -266,6 +268,30 @@ node ruvector_server.js 8080
 ```
 
 **Note:** The RuVector server must be running for vector operations. The system will raise a `RuVectorConnectionError` if the server is unavailable.
+
+### Data Persistence
+
+RuVector automatically persists data to disk:
+
+- **Data Directory:** `./ruvector_data/` (configurable via `RUVECTOR_DATA_DIR`)
+- **Auto-save:** Data is saved after each insert operation
+- **Auto-load:** Data is loaded automatically when server starts
+- **Graceful shutdown:** Data is saved before server exits
+
+**Persisted Files:**
+```
+ruvector_data/
+├── config.json     # Database configuration (dimension, count)
+├── vectors.json    # Vector embeddings
+└── metadata.json   # Entry metadata
+```
+
+**Environment Variables:**
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RUVECTOR_PORT` | 3456 | Server port |
+| `RUVECTOR_DATA_DIR` | ./ruvector_data | Data directory |
+| `RUVECTOR_AUTO_SAVE` | true | Auto-save after inserts |
 
 ## Test Results
 
