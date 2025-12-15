@@ -1,0 +1,91 @@
+# =============================================================================
+# CONTEXT BLOCK
+# =============================================================================
+# Project: Brazilian Soccer MCP Server
+# Description: MCP server providing knowledge graph interface for Brazilian
+#              soccer data using RuVector as the vector database backend
+# Author: Hive Mind Collective (Queen + Workers)
+# Created: 2025-12-15
+#
+# Architecture:
+#   - MCP Server: Exposes tools for querying Brazilian soccer data
+#   - Vector Store: RuVector for similarity search and embeddings
+#   - Data Sources: 6 Kaggle CSV datasets (matches, players, competitions)
+#
+# Dependencies:
+#   - mcp: Model Context Protocol server framework
+#   - ruvector: Vector database (alternative to Neo4j)
+#   - pandas: Data manipulation
+#   - numpy: Numerical operations
+#   - sentence-transformers: Text embeddings generation
+#   - pytest: Testing framework
+#   - pytest-bdd: BDD testing support
+# =============================================================================
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "brazilian-soccer-mcp"
+version = "1.0.0"
+description = "MCP server for Brazilian soccer data with RuVector vector database"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Hive Mind Collective"}
+]
+keywords = ["mcp", "soccer", "football", "brazil", "vector-database", "ruvector"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "mcp>=1.0.0",
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    "sentence-transformers>=2.2.0",
+    "pydantic>=2.0.0",
+    "python-dateutil>=2.8.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-bdd>=6.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+]
+
+[project.scripts]
+brazilian-soccer-mcp = "brazilian_soccer_mcp.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/brazilian_soccer_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "match_queries: Match query tests",
+    "team_queries: Team query tests",
+    "player_queries: Player query tests",
+    "statistics: Statistical analysis tests",
+]
+
+[tool.black]
+line-length = 100
+target-version = ['py310']
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "W", "I", "N"]
