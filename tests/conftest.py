@@ -6,20 +6,25 @@ Module: conftest.py
 Description: Shared pytest fixtures for Brazilian Soccer MCP Server tests
 Author: Hive Mind Collective (Queen + Workers)
 Created: 2025-12-15
+Updated: 2025-12-15
 
 Purpose:
     Provide shared test fixtures for all test modules including:
     - Data loader with test data
     - Query handler for running queries
-    - Vector store for semantic search tests
+    - Vector store for semantic search tests (requires RuVector server)
     - Sample data for specific test scenarios
 
 Fixtures:
     - data_loader: Loaded DataLoader instance with all CSV data
     - query_handler: QueryHandler instance for query tests
-    - vector_store: VectorStore instance for semantic search tests
+    - vector_store: VectorStore instance (requires RuVector server running)
     - sample_matches: Sample match data for unit tests
     - sample_players: Sample player data for unit tests
+
+Note:
+    Vector store tests require the RuVector server to be running.
+    Start with: node ruvector_server.js
 =============================================================================
 """
 
@@ -33,7 +38,7 @@ sys.path.insert(0, str(src_path))
 
 from brazilian_soccer_mcp.data_loader import DataLoader
 from brazilian_soccer_mcp.query_handlers import QueryHandler
-from brazilian_soccer_mcp.vector_store import VectorStore
+from brazilian_soccer_mcp.vector_store import VectorStore, RuVectorConnectionError
 from brazilian_soccer_mcp.models import Match, Player, Competition
 from datetime import datetime
 
@@ -68,18 +73,26 @@ def query_handler(data_loader):
 def vector_store(data_loader):
     """
     Create and populate a VectorStore instance.
+
+    Requires RuVector server to be running.
+    Skips tests if server is unavailable.
     """
-    store = VectorStore()
-    # Index a subset of matches for faster tests
-    store.index_matches(data_loader.matches[:1000])
-    store.index_players(data_loader.players[:500])
-    return store
+    try:
+        store = VectorStore()
+        # Index a subset of matches for faster tests
+        store.index_matches(data_loader.matches[:1000])
+        store.index_players(data_loader.players[:500])
+        return store
+    except RuVectorConnectionError:
+        pytest.skip("RuVector server not available. Start with: node ruvector_server.js")
 
 
 @pytest.fixture(scope="session")
 def query_handler_with_vector_store(data_loader, vector_store):
     """
     Create a QueryHandler with vector store enabled.
+
+    Requires RuVector server to be running.
     """
     return QueryHandler(data_loader, vector_store)
 

@@ -13,7 +13,7 @@ Purpose:
     about Brazilian soccer data using RuVector (https://github.com/ruvnet/ruvector).
 
     This module provides:
-    - Text embedding generation using simple hash-based or sentence-transformers
+    - Text embedding generation using sentence-transformers or hash-based embedder
     - Vector storage via RuVector HTTP server
     - Similarity search using RuVector's native cosine similarity
     - Support for semantic queries like "find similar matches"
@@ -34,8 +34,8 @@ Architecture:
     - GET  /health        - Health check
 
 RuVector Integration:
-    - Uses actual RuVector for vector storage and similarity search
-    - Falls back to numpy-based implementation if server unavailable
+    - Uses RuVector for all vector storage and similarity search
+    - Requires RuVector server to be running (no fallback)
     - Maintains metadata in sync with vector storage
     - Provides sub-millisecond similarity search via native Rust code
 
@@ -43,6 +43,10 @@ Vector Indices:
     - matches_index: Embeddings of match descriptions
     - players_index: Embeddings of player information
     - teams_index: Embeddings of team information
+
+Requirements:
+    - RuVector server must be running: node ruvector_server.js
+    - Install RuVector: npm install ruvector
 =============================================================================
 """
 
@@ -59,8 +63,7 @@ from pathlib import Path
 import urllib.request
 import urllib.error
 
-# Use simpler embedding approach to avoid heavy dependencies
-# In production, you would use sentence-transformers
+# Use sentence-transformers for embeddings if available
 try:
     from sentence_transformers import SentenceTransformer
     HAS_TRANSFORMERS = True
@@ -76,6 +79,11 @@ RUVECTOR_PORT = int(os.environ.get("RUVECTOR_PORT", "3456"))
 RUVECTOR_URL = f"http://{RUVECTOR_HOST}:{RUVECTOR_PORT}"
 
 
+class RuVectorConnectionError(Exception):
+    """Raised when unable to connect to RuVector server."""
+    pass
+
+
 @dataclass
 class VectorEntry:
     """A single entry in the vector store."""
@@ -87,8 +95,8 @@ class VectorEntry:
 
 class SimpleEmbedder:
     """
-    Simple text embedder using TF-IDF-like approach.
-    Falls back to this when sentence-transformers isn't available.
+    Simple text embedder using hash-based approach.
+    Used when sentence-transformers isn't available.
     """
 
     def __init__(self, dim: int = 384):
@@ -109,7 +117,7 @@ class SimpleEmbedder:
         self._fitted = True
 
     def encode(self, texts: List[str]) -> np.ndarray:
-        """Encode texts to vectors using simple bag-of-words + hashing."""
+        """Encode texts to vectors using bag-of-words + hashing."""
         vectors = []
         for text in texts:
             vec = np.zeros(self.dim)
@@ -231,9 +239,9 @@ class RuVectorClient:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 return json.loads(resp.read().decode())
         except urllib.error.URLError as e:
-            return {"success": False, "error": str(e)}
+            raise RuVectorConnectionError(f"Failed to connect to RuVector server: {e}")
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            raise RuVectorConnectionError(f"RuVector request failed: {e}")
 
     @property
     def is_connected(self) -> bool:
@@ -283,10 +291,10 @@ class VectorStore:
     """
     Vector store for semantic search over Brazilian soccer data.
 
-    This implementation uses RuVector via HTTP for vector operations:
+    This implementation uses RuVector via HTTP for all vector operations:
     - Native Rust-based similarity search (sub-millisecond)
     - Automatic server management
-    - Falls back to numpy if server unavailable
+    - Requires RuVector server to be running
 
     Attributes:
         embedder: Text embedding model (Python-side)
@@ -310,22 +318,25 @@ class VectorStore:
             dimension: Vector dimension (384 for MiniLM)
             ruvector_url: Optional custom RuVector server URL
             auto_start_server: Whether to auto-start server if not running
+
+        Raises:
+            RuVectorConnectionError: If unable to connect to RuVector server
         """
         self.dimension = dimension
         self.entries: List[VectorEntry] = []
-        self._vectors: Optional[np.ndarray] = None
-        self._index_dirty = True
-        self._use_ruvector = True
 
         # Initialize RuVector client
         url = ruvector_url or RUVECTOR_URL
         self.client = RuVectorClient(url, auto_start=auto_start_server)
 
         if not self.client.is_connected:
-            self._use_ruvector = False
-        else:
-            # Initialize ruvector with dimension
-            self.client.init(dimension)
+            raise RuVectorConnectionError(
+                f"Unable to connect to RuVector server at {url}. "
+                "Please start the server with: node ruvector_server.js"
+            )
+
+        # Initialize ruvector with dimension
+        self.client.init(dimension)
 
         # Initialize embedder (always Python-side)
         if HAS_TRANSFORMERS:
@@ -346,14 +357,6 @@ class VectorStore:
         else:
             return self.embedder.encode(texts)
 
-    def _rebuild_index(self) -> None:
-        """Rebuild the vector index (numpy fallback)."""
-        if not self.entries:
-            self._vectors = None
-        else:
-            self._vectors = np.vstack([e.vector for e in self.entries])
-        self._index_dirty = False
-
     def add(self, id: str, text: str, metadata: Dict[str, Any] = None) -> None:
         """
         Add a single entry to the vector store.
@@ -371,11 +374,9 @@ class VectorStore:
             text=text,
         )
         self.entries.append(entry)
-        self._index_dirty = True
 
         # Insert into RuVector
-        if self._use_ruvector:
-            self.client.insert(id, vector.tolist(), metadata)
+        self.client.insert(id, vector.tolist(), metadata)
 
     def add_batch(self, items: List[Tuple[str, str, Dict[str, Any]]]) -> None:
         """
@@ -408,11 +409,8 @@ class VectorStore:
                 "metadata": metadata or {}
             })
 
-        self._index_dirty = True
-
         # Batch insert into RuVector
-        if self._use_ruvector and ruvector_items:
-            self.client.insert_batch(ruvector_items)
+        self.client.insert_batch(ruvector_items)
 
     def search(
         self,
@@ -421,7 +419,7 @@ class VectorStore:
         filter_fn: Optional[callable] = None,
     ) -> List[Tuple[VectorEntry, float]]:
         """
-        Search for similar entries using cosine similarity.
+        Search for similar entries using RuVector's cosine similarity.
 
         Args:
             query: Query text
@@ -437,67 +435,31 @@ class VectorStore:
         # Embed query
         query_vector = self._embed([query])[0]
 
-        # Try RuVector first
-        if self._use_ruvector:
-            response = self.client.search(query_vector.tolist(), k * 2)  # Get more for filtering
+        # Search using RuVector
+        response = self.client.search(query_vector.tolist(), k * 2)  # Get more for filtering
 
-            if response.get("success") and response.get("results"):
-                results = []
-                # Build ID to entry lookup
-                id_to_entry = {e.id: e for e in self.entries}
-
-                for result in response["results"]:
-                    entry = id_to_entry.get(result["id"])
-                    if not entry:
-                        continue
-
-                    # Apply filter if provided
-                    if filter_fn and not filter_fn(entry.metadata):
-                        continue
-
-                    results.append((entry, result["score"]))
-
-                    if len(results) >= k:
-                        break
-
-                return results
-
-        # Fallback to numpy-based search
-        if self._index_dirty:
-            self._rebuild_index()
-
-        # Calculate cosine similarities
-        similarities = self._cosine_similarity(query_vector, self._vectors)
-
-        # Get top-k indices
-        top_indices = np.argsort(similarities)[::-1]
+        if not response.get("success"):
+            raise RuVectorConnectionError(f"Search failed: {response.get('error', 'Unknown error')}")
 
         results = []
-        for idx in top_indices:
-            if len(results) >= k:
-                break
+        # Build ID to entry lookup
+        id_to_entry = {e.id: e for e in self.entries}
 
-            entry = self.entries[idx]
+        for result in response.get("results", []):
+            entry = id_to_entry.get(result["id"])
+            if not entry:
+                continue
 
             # Apply filter if provided
             if filter_fn and not filter_fn(entry.metadata):
                 continue
 
-            results.append((entry, float(similarities[idx])))
+            results.append((entry, result["score"]))
+
+            if len(results) >= k:
+                break
 
         return results
-
-    def _cosine_similarity(self, query: np.ndarray, vectors: np.ndarray) -> np.ndarray:
-        """Calculate cosine similarity between query and all vectors."""
-        # Normalize query
-        query_norm = query / (np.linalg.norm(query) + 1e-10)
-
-        # Normalize vectors
-        norms = np.linalg.norm(vectors, axis=1, keepdims=True) + 1e-10
-        vectors_norm = vectors / norms
-
-        # Dot product
-        return np.dot(vectors_norm, query_norm)
 
     def index_matches(self, matches: List[Match]) -> None:
         """
@@ -658,25 +620,22 @@ class VectorStore:
     def clear(self) -> None:
         """Clear all entries from the store."""
         self.entries = []
-        self._vectors = None
-        self._index_dirty = True
-
-        if self._use_ruvector:
-            self.client.clear()
+        self.client.clear()
 
     @property
     def size(self) -> int:
         """Number of entries in the store."""
         return len(self.entries)
 
-    @property
-    def using_ruvector(self) -> bool:
-        """Whether RuVector is being used (vs numpy fallback)."""
-        return self._use_ruvector
+    def stats(self) -> Dict[str, Any]:
+        """Get RuVector database statistics."""
+        return self.client.stats()
 
     def save(self, path: str) -> None:
         """
-        Save the vector store to disk.
+        Save the vector store metadata to disk.
+
+        Note: Vectors are stored in RuVector. This saves metadata for reload.
 
         Args:
             path: Directory path to save to
@@ -684,69 +643,56 @@ class VectorStore:
         save_dir = Path(path)
         save_dir.mkdir(parents=True, exist_ok=True)
 
-        # Save vectors
-        if self._index_dirty:
-            self._rebuild_index()
-
-        if self._vectors is not None:
-            np.save(save_dir / "vectors.npy", self._vectors)
-
-        # Save metadata
-        metadata = []
+        # Save metadata and vectors for reload
+        data = []
         for entry in self.entries:
-            metadata.append({
+            data.append({
                 "id": entry.id,
                 "text": entry.text,
                 "metadata": entry.metadata,
+                "vector": entry.vector.tolist(),
             })
 
-        with open(save_dir / "metadata.json", "w") as f:
-            json.dump(metadata, f)
+        with open(save_dir / "vector_store.json", "w") as f:
+            json.dump(data, f)
 
     def load(self, path: str) -> None:
         """
-        Load the vector store from disk.
+        Load the vector store from disk and sync with RuVector.
 
         Args:
             path: Directory path to load from
         """
         load_dir = Path(path)
+        data_path = load_dir / "vector_store.json"
 
-        # Load vectors
-        vectors_path = load_dir / "vectors.npy"
-        if vectors_path.exists():
-            self._vectors = np.load(vectors_path)
-        else:
-            self._vectors = None
+        if not data_path.exists():
+            return
 
-        # Load metadata
-        metadata_path = load_dir / "metadata.json"
-        if metadata_path.exists():
-            with open(metadata_path) as f:
-                metadata = json.load(f)
+        with open(data_path) as f:
+            data = json.load(f)
 
-            self.entries = []
-            ruvector_items = []
+        # Clear existing data
+        self.clear()
 
-            for i, item in enumerate(metadata):
-                vector = self._vectors[i] if self._vectors is not None else np.zeros(self.dimension)
-                entry = VectorEntry(
-                    id=item["id"],
-                    vector=vector,
-                    metadata=item["metadata"],
-                    text=item["text"],
-                )
-                self.entries.append(entry)
+        # Reload entries
+        ruvector_items = []
+        for item in data:
+            vector = np.array(item["vector"])
+            entry = VectorEntry(
+                id=item["id"],
+                vector=vector,
+                metadata=item["metadata"],
+                text=item["text"],
+            )
+            self.entries.append(entry)
 
-                ruvector_items.append({
-                    "id": item["id"],
-                    "vector": vector.tolist(),
-                    "metadata": item["metadata"]
-                })
+            ruvector_items.append({
+                "id": item["id"],
+                "vector": item["vector"],
+                "metadata": item["metadata"]
+            })
 
-            # Reload into RuVector
-            if self._use_ruvector and ruvector_items:
-                self.client.clear()
-                self.client.insert_batch(ruvector_items)
-
-        self._index_dirty = False
+        # Batch insert into RuVector
+        if ruvector_items:
+            self.client.insert_batch(ruvector_items)

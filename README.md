@@ -253,7 +253,7 @@ Python (vector_store.py) <--HTTP--> Node.js (ruvector_server.js) <--N-API--> RuV
 | `/search` | POST | Search similar vectors |
 | `/clear` | POST | Clear all vectors |
 
-### Starting the RuVector Server
+### Starting the RuVector Server (Required)
 ```bash
 # Install RuVector
 npm install ruvector
@@ -265,8 +265,7 @@ node ruvector_server.js
 node ruvector_server.js 8080
 ```
 
-### Fallback Mode
-When the RuVector server is unavailable, the system automatically falls back to numpy-based vector operations, ensuring the MCP server works in all environments.
+**Note:** The RuVector server must be running for vector operations. The system will raise a `RuVectorConnectionError` if the server is unavailable.
 
 ## Test Results
 
@@ -295,7 +294,7 @@ This project was implemented using a **Hive Mind Collective** approach with spec
 - **Coder Agent**: Implemented core functionality
 - **Tester Agent**: Created comprehensive BDD test suite
 
-The implementation uses RuVector for vector storage and similarity search. When RuVector is unavailable, it falls back to numpy-based operations for compatibility.
+The implementation uses RuVector exclusively for vector storage and similarity search. The RuVector server must be running for vector operations to work.
 
 ## Context Block Documentation
 
