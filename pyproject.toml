@@ -80,6 +80,7 @@ markers = [
     "team_queries: Team query tests",
     "player_queries: Player query tests",
     "statistics: Statistical analysis tests",
+    "performance: Performance benchmark tests",
 ]
 
 [tool.black]

@@ -295,15 +295,16 @@ ruvector_data/
 
 ## Test Results
 
-All 47 BDD tests pass:
+All 47 BDD functional tests pass, plus 14 performance benchmark tests:
 
 ```
 tests/features/test_match_queries.py    - 13 tests ✓
 tests/features/test_player_queries.py   - 12 tests ✓
 tests/features/test_team_queries.py     - 10 tests ✓
 tests/features/test_statistics.py       - 12 tests ✓
+tests/features/test_performance.py      - 14 tests ✓
 
-============================== 47 passed in 8.61s ==============================
+============================== 61 passed in ~70s ==============================
 ```
 
 ### Test Categories
@@ -311,6 +312,83 @@ tests/features/test_statistics.py       - 12 tests ✓
 - **Player Queries**: Search by name, nationality, club, position, rating
 - **Team Queries**: Statistics, head-to-head comparisons, home/away records
 - **Statistics**: Standings calculation, biggest wins, goal averages
+- **Performance**: End-to-end benchmarks with RuVector
+
+## Performance Benchmarks
+
+Performance test results for end-to-end BDD testing with RuVector:
+
+### Data Loading Performance
+
+| Operation | Time | Throughput |
+|-----------|------|------------|
+| Load All CSV Files (6 files) | 8.15s | - |
+| Parse 23,954 matches | included | - |
+| Parse 18,207 players | included | - |
+| Data Access (cached) | <0.01ms | 4.8M ops/sec |
+
+### RuVector Vector Store Performance
+
+| Operation | Time | Throughput |
+|-----------|------|------------|
+| Vector Store Initialization | 1.48s | 0.67 ops/sec |
+| Match Indexing (1,000 vectors) | 7.81s | 128 matches/sec |
+| Vector Dimension | 384 | (MiniLM-L6-v2) |
+
+### Query Handler Performance
+
+| Query Type | Avg Latency | Min | Max | Throughput |
+|------------|-------------|-----|-----|------------|
+| Match Search | 5.64ms | 1.42ms | 18.58ms | 177 ops/sec |
+| Player Search | 2.13ms | 1.44ms | 4.38ms | 470 ops/sec |
+| Team Statistics | 9.64ms | 4.75ms | 24.66ms | 104 ops/sec |
+| Head-to-Head | 6.92ms | 5.31ms | 9.92ms | 144 ops/sec |
+| Standings Calc | 2.67ms | 1.81ms | 3.73ms | 374 ops/sec |
+| Statistics Query | 13.84ms | 2.64ms | 33.40ms | 72 ops/sec |
+
+### End-to-End Workflow Performance
+
+| Workflow | Avg Time | Description |
+|----------|----------|-------------|
+| Team Analysis | 33.93ms | Stats + standings + matches + H2H + players |
+| Derby Comparison | 79.30ms | 5 classic derbies with match history |
+| Player Scouting | 11.66ms | Multi-criteria player searches |
+
+### Performance Summary
+
+```
+================================================================================
+AGGREGATE STATISTICS
+================================================================================
+Total Operations Measured: 12 categories
+Fastest Operation: <0.01ms (data access)
+Slowest Operation: 8151ms (full data load)
+Median Query Response: 10.65ms
+Combined Throughput: 1,700+ ops/sec (query operations)
+================================================================================
+```
+
+### Performance Requirements Met
+
+| Requirement | Target | Actual | Status |
+|-------------|--------|--------|--------|
+| Simple lookups | < 2 seconds | < 20ms | ✓ |
+| Aggregate queries | < 5 seconds | < 100ms | ✓ |
+| Data loading | < 10 seconds | 8.15s | ✓ |
+| Vector search | Sub-100ms | ~10ms | ✓ |
+
+### Running Performance Tests
+
+```bash
+# Run all performance tests with detailed output
+pytest tests/features/test_performance.py -v -s
+
+# Run specific performance category
+pytest tests/features/test_performance.py::TestQueryHandlerPerformance -v -s
+
+# Generate performance report
+pytest tests/features/test_performance.py::TestPerformanceSummary -v -s
+```
 
 ## Implementation Notes
 

@@ -1,0 +1,138 @@
+
+================================================================================
+PERFORMANCE TEST RESULTS - Brazilian Soccer MCP Server with RuVector
+================================================================================
+Generated: 2025-12-15 23:13:12
+Total Operations Measured: 12
+--------------------------------------------------------------------------------
+Data Loading (All CSVs):
+  Iterations: 3
+  Total Time: 24.4538s
+  Min: 8110.50ms
+  Max: 8221.27ms
+  Avg: 8151.26ms
+  Median: 8122.02ms
+  Std Dev: 60.90ms
+  Throughput: 0.12 ops/sec
+----------------------------------------
+Match Data Access:
+  Iterations: 100
+  Total Time: 0.0000s
+  Min: 0.00ms
+  Max: 0.00ms
+  Avg: 0.00ms
+  Median: 0.00ms
+  Std Dev: 0.00ms
+  Throughput: 4868315.68 ops/sec
+----------------------------------------
+Vector Store Initialization:
+  Iterations: 3
+  Total Time: 4.4466s
+  Min: 1361.16ms
+  Max: 1553.19ms
+  Avg: 1482.19ms
+  Median: 1532.22ms
+  Std Dev: 105.34ms
+  Throughput: 0.67 ops/sec
+----------------------------------------
+Match Search (All Variants):
+  Iterations: 50
+  Total Time: 0.2821s
+  Min: 1.42ms
+  Max: 18.58ms
+  Avg: 5.64ms
+  Median: 6.16ms
+  Std Dev: 3.62ms
+  Throughput: 177.25 ops/sec
+----------------------------------------
+Player Search (All Variants):
+  Iterations: 50
+  Total Time: 0.1063s
+  Min: 1.44ms
+  Max: 4.38ms
+  Avg: 2.13ms
+  Median: 1.71ms
+  Std Dev: 0.40ms
+  Throughput: 470.19 ops/sec
+----------------------------------------
+Team Stats (All Variants):
+  Iterations: 50
+  Total Time: 0.4819s
+  Min: 4.75ms
+  Max: 24.66ms
+  Avg: 9.64ms
+  Median: 8.49ms
+  Std Dev: 2.92ms
+  Throughput: 103.75 ops/sec
+----------------------------------------
+Head-to-Head (All Derbies):
+  Iterations: 50
+  Total Time: 0.3461s
+  Min: 5.31ms
+  Max: 9.92ms
+  Avg: 6.92ms
+  Median: 6.51ms
+  Std Dev: 0.64ms
+  Throughput: 144.48 ops/sec
+----------------------------------------
+Standings Calculation (5 Seasons):
+  Iterations: 25
+  Total Time: 0.0668s
+  Min: 1.81ms
+  Max: 3.73ms
+  Avg: 2.67ms
+  Median: 2.40ms
+  Std Dev: 0.65ms
+  Throughput: 374.45 ops/sec
+----------------------------------------
+Statistics (All Types):
+  Iterations: 25
+  Total Time: 0.3461s
+  Min: 2.64ms
+  Max: 33.40ms
+  Avg: 13.84ms
+  Median: 12.82ms
+  Std Dev: 8.16ms
+  Throughput: 72.23 ops/sec
+----------------------------------------
+Complete Team Analysis Workflow:
+  Iterations: 5
+  Total Time: 0.1697s
+  Min: 31.07ms
+  Max: 40.12ms
+  Avg: 33.93ms
+  Median: 32.41ms
+  Std Dev: 3.79ms
+  Throughput: 29.47 ops/sec
+----------------------------------------
+Derby Comparison (5 Classic Derbies):
+  Iterations: 3
+  Total Time: 0.2379s
+  Min: 71.91ms
+  Max: 86.08ms
+  Avg: 79.30ms
+  Median: 79.91ms
+  Std Dev: 7.10ms
+  Throughput: 12.61 ops/sec
+----------------------------------------
+Player Scouting Workflow:
+  Iterations: 5
+  Total Time: 0.0583s
+  Min: 9.64ms
+  Max: 14.54ms
+  Avg: 11.66ms
+  Median: 12.02ms
+  Std Dev: 1.97ms
+  Throughput: 85.76 ops/sec
+----------------------------------------
+
+================================================================================
+AGGREGATE STATISTICS
+================================================================================
+Total Operations: 12
+Fastest Operation: 0.00ms avg
+Slowest Operation: 8151.26ms avg
+Mean Response Time: 816.60ms
+Median Response Time: 10.65ms
+Total Throughput: 4869786.67 ops/sec combined
+================================================================================
