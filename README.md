@@ -12,42 +12,92 @@ This project implements an MCP server that enables natural language queries abou
 
 ## Architecture
 
+### System Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              Claude / LLM Client                            │
+└─────────────────────────────────┬───────────────────────────────────────────┘
+                                  │ MCP Protocol (stdio)
+                                  ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         MCP Server (Python)                                 │
+│  ┌─────────────┐  ┌─────────────────┐  ┌─────────────────────────────────┐  │
+│  │ server.py   │──│ query_handlers  │──│ data_loader.py                  │  │
+│  │ (FastMCP)   │  │ (business logic)│  │ (CSV parsing, team normalization│  │
+│  └─────────────┘  └────────┬────────┘  └─────────────────────────────────┘  │
+│                            │                                                │
+│                   ┌────────▼────────┐                                       │
+│                   │ vector_store.py │                                       │
+│                   │ (HTTP Client)   │                                       │
+│                   └────────┬────────┘                                       │
+└────────────────────────────┼────────────────────────────────────────────────┘
+                             │ HTTP REST API (localhost:3456)
+                             ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      RuVector Server (Node.js + Rust)                       │
+│  ┌─────────────────────┐    ┌─────────────────────────────────────────────┐ │
+│  │ ruvector_server.js  │────│ RuVector (Rust via N-API)                   │ │
+│  │ (Express HTTP API)  │    │ - HNSW index for similarity search          │ │
+│  └─────────────────────┘    │ - Cosine similarity scoring                 │ │
+│                             │ - Metadata filtering                        │ │
+│                             └─────────────────────────────────────────────┘ │
+│                                              │                              │
+│                             ┌────────────────▼────────────────┐             │
+│                             │ ruvector_data/ (Persistence)    │             │
+│                             │ ├── config.json                 │             │
+│                             │ ├── vectors.json                │             │
+│                             │ └── metadata.json               │             │
+│                             └─────────────────────────────────┘             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Project Structure
+
 ```
 brazilian-soccer-mcp/
 ├── src/
 │   └── brazilian_soccer_mcp/
 │       ├── __init__.py          # Package initialization
-│       ├── server.py            # MCP server entry point
+│       ├── server.py            # MCP server entry point (FastMCP)
 │       ├── data_loader.py       # CSV data loading and preprocessing
-│       ├── vector_store.py      # Vector similarity search (RuVector-style)
+│       ├── vector_store.py      # RuVector HTTP client for vector operations
 │       ├── query_handlers.py    # Query processing logic
 │       ├── models.py            # Pydantic data models
-│       └── utils.py             # Utility functions
+│       └── utils.py             # Utility functions (team name normalization)
 ├── tests/
 │   ├── conftest.py              # Shared pytest fixtures
-│   └── features/                # BDD-style test modules
+│   └── features/                # BDD-style test modules (Given-When-Then)
 │       ├── test_match_queries.py
 │       ├── test_team_queries.py
 │       ├── test_player_queries.py
-│       └── test_statistics.py
+│       ├── test_statistics.py
+│       └── test_performance.py
 ├── data/
-│   └── kaggle/                  # CSV data files
+│   └── kaggle/                  # CSV data files (6 datasets)
+├── ruvector_server.js           # RuVector HTTP bridge server
+├── ruvector_data/               # Persisted vector data
 └── pyproject.toml               # Project configuration
 ```
 
 ## Vector Store Implementation
 
-Instead of Neo4j, this implementation uses a **RuVector-inspired vector store** approach:
-- **numpy-based vector operations** for efficient similarity search
-- **Sentence embeddings** for semantic search capabilities
-- **Metadata filtering** combined with vector search
-- **Cosine similarity** for finding related matches and players
+Instead of Neo4j, this implementation uses **[RuVector](https://github.com/ruvnet/ruvector)** - a high-performance vector database written in Rust with Node.js bindings:
 
-This provides the core benefits of RuVector:
-- Sub-millisecond similarity search
-- Semantic query understanding
-- Metadata-based filtering
-- No external database dependency
+### Why RuVector?
+- **Rust-powered performance**: Native Rust implementation via N-API bindings
+- **Sub-millisecond similarity search**: Optimized HNSW algorithm for fast nearest-neighbor queries
+- **Sentence embeddings**: Uses sentence-transformers (MiniLM-L6-v2) for semantic search
+- **Metadata filtering**: Combined vector + metadata search for precise queries
+- **Cosine similarity**: Finding related matches and players based on semantic meaning
+- **Persistent storage**: Automatic data persistence to disk with graceful shutdown
+- **HTTP API**: Clean REST interface for Python integration
+
+### Architecture Benefits
+- **No external database dependency**: Self-contained vector storage
+- **Low memory footprint**: Efficient Rust memory management
+- **Cross-language support**: Python communicates via HTTP to Node.js/Rust backend
+- **Production-ready**: Auto-save, auto-load, and graceful shutdown handling
 
 ## Data Sources
 
