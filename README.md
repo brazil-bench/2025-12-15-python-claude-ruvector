@@ -77,6 +77,56 @@ pip install -e ".[dev]"
 
 ## Usage
 
+### Start ruvector in a separate shell
+```
+$ node ruvector_server.js
+```
+
+### From Claude
+```
+$ claude mcp add brazilian-soccer -- python -m brazilian_soccer_mcp.server
+Added stdio MCP server brazilian-soccer with command: python -m brazilian_soccer_mcp.server to local config
+File modified: /home/codespace/.claude.json [project: /workspaces/2025-12-15-python-claude-ruvector]
+```
+### Check that the mcp server is configured
+```
+$ claude
+> /mcp 
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Manage MCP servers
+ 1 server
+
+ ❯ 1. brazilian-soccer            ✔ connected · Enter to view details
+```
+
+### try asking a question
+
+> get standings 
+
+● brazilian-soccer - get_standings (MCP)(season: 2019)
+  ⎿  {                                                                                                               
+       "success": true,
+       "query_type": "standings",
+     … +343 lines (ctrl+o to expand)
+
+● Brasileirão 2019 Standings:
+
+  | Pos | Team          | Pts | W   | D   | L   | GF  | GA  | GD  |
+  |-----|---------------|-----|-----|-----|-----|-----|-----|-----|
+  | 1   | Flamengo 🏆   | 180 | 56  | 12  | 8   | 172 | 74  | +98 |
+  | 2   | Palmeiras     | 148 | 42  | 22  | 12  | 122 | 64  | +58 |
+  | 3   | Santos        | 148 | 44  | 16  | 16  | 120 | 66  | +54 |
+  | 4   | Internacional | 114 | 32  | 18  | 26  | 88  | 78  | +10 |
+  | 5   | Corinthians   | 112 | 28  | 28  | 20  | 84  | 68  | +16 |
+  | 6   | Atlético      | 112 | 31  | 19  | 26  | 96  | 81  | +15 |
+  | 7   | Fortaleza     | 106 | 30  | 16  | 30  | 100 | 98  | +2  |
+  | 8   | Bahia         | 98  | 24  | 26  | 26  | 88  | 86  | +2  |
+  | 9   | Fluminense    | 92  | 24  | 20  | 32  | 76  | 92  | -16 |
+  | 10  | Botafogo      | 86  | 26  | 8   | 42  | 62  | 90  | -28 |
+
+  Flamengo dominated the 2019 Brasileirão with 180 points, 56 wins, and an impressive +98 goal difference. Would you like to see a different season or other statistics?
+```
+
 ### As MCP Server
 
 ```bash
