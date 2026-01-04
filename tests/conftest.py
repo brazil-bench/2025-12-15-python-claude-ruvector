@@ -6,7 +6,7 @@ Module: conftest.py
 Description: Shared pytest fixtures for Brazilian Soccer MCP Server tests
 Author: Hive Mind Collective (Queen + Workers)
 Created: 2025-12-15
-Updated: 2025-12-15
+Updated: 2026-01-04
 
 Purpose:
     Provide shared test fixtures for all test modules including:
@@ -14,6 +14,9 @@ Purpose:
     - Query handler for running queries
     - Vector store for semantic search tests (requires RuVector server)
     - Sample data for specific test scenarios
+
+    Tests use pytest-bdd with Gherkin .feature files for BDD-style testing.
+    Feature files are located in tests/features/gherkin/
 
 Fixtures:
     - data_loader: Loaded DataLoader instance with all CSV data
@@ -195,49 +198,3 @@ def sample_players():
     ]
 
 
-# BDD Helper Classes
-class GivenWhenThen:
-    """
-    Base class for BDD-style test scenarios.
-
-    Usage:
-        scenario = GivenWhenThen()
-        scenario.given("the match data is loaded", data_loader is not None)
-        scenario.when("I search for Flamengo matches", result := handler.search_matches(team="Flamengo"))
-        scenario.then("I should get matches", len(result.data) > 0)
-    """
-
-    def __init__(self):
-        self.given_conditions = []
-        self.when_actions = []
-        self.then_assertions = []
-        self._context = {}
-
-    def given(self, description: str, condition: bool = True):
-        """Record a Given condition."""
-        self.given_conditions.append((description, condition))
-        assert condition, f"Given '{description}' failed"
-        return self
-
-    def when(self, description: str, action_result=None):
-        """Record a When action and its result."""
-        self.when_actions.append((description, action_result))
-        self._context["result"] = action_result
-        return self
-
-    def then(self, description: str, assertion: bool):
-        """Record and check a Then assertion."""
-        self.then_assertions.append((description, assertion))
-        assert assertion, f"Then '{description}' failed"
-        return self
-
-    @property
-    def result(self):
-        """Get the result from the When action."""
-        return self._context.get("result")
-
-
-@pytest.fixture
-def bdd():
-    """Create a new GivenWhenThen scenario helper."""
-    return GivenWhenThen()

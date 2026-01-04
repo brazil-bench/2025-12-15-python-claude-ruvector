@@ -6,10 +6,11 @@ Module: test_performance.py
 Description: Performance benchmarks for Brazilian Soccer MCP Server with RuVector
 Author: Hive Mind Collective (Queen + Workers)
 Created: 2025-12-15
+Updated: 2026-01-04
 
 Purpose:
-    Measure end-to-end performance of the Brazilian Soccer MCP Server using
-    BDD Given-When-Then format. Tests cover:
+    Measure end-to-end performance of the Brazilian Soccer MCP Server.
+    Tests cover:
     - Data loading performance
     - RuVector vector store operations (insert, batch, search)
     - Query handler performance (matches, players, teams, statistics)
@@ -33,8 +34,8 @@ import pytest
 import time
 import statistics
 from datetime import datetime
-from typing import List, Dict, Any, Callable
-from dataclasses import dataclass, field
+from typing import Callable
+from dataclasses import dataclass
 
 
 @dataclass
@@ -125,19 +126,17 @@ class TestDataLoadingPerformance:
     """
 
     @pytest.mark.performance
-    def test_data_loader_initialization_performance(self, data_dir, bdd, performance_results):
+    def test_data_loader_initialization_performance(self, data_dir, performance_results):
         """
         Scenario: Measure data loader initialization time
 
         Given a fresh data loader
         When I load all CSV data files
         Then loading should complete within 10 seconds
-        And I should have performance metrics
         """
         from brazilian_soccer_mcp.data_loader import DataLoader
 
-        # Given
-        bdd.given("a fresh data loader", True)
+        # Given - a fresh data loader
 
         # When - measure loading performance
         def load_data():
@@ -151,17 +150,16 @@ class TestDataLoadingPerformance:
             iterations=3,
             warmup=1
         )
-        bdd.when("I load all CSV data files", metrics)
 
         # Then
-        bdd.then("loading should complete within 10 seconds", metrics.avg_time < 10.0)
-        bdd.then("should have performance metrics", metrics.iterations > 0)
+        assert metrics.avg_time < 10.0, "Loading should complete within 10 seconds"
+        assert metrics.iterations > 0, "Should have performance metrics"
 
         performance_results.append(metrics)
         print(f"\n{metrics}")
 
     @pytest.mark.performance
-    def test_match_data_volume(self, data_loader, bdd, performance_results):
+    def test_match_data_volume(self, data_loader, performance_results):
         """
         Scenario: Verify match data volume and access time
 
@@ -171,7 +169,7 @@ class TestDataLoadingPerformance:
         And access time should be under 1ms
         """
         # Given
-        bdd.given("the match data is loaded", data_loader is not None)
+        assert data_loader is not None, "Match data should be loaded"
 
         # When
         def access_matches():
@@ -184,11 +182,10 @@ class TestDataLoadingPerformance:
             warmup=10
         )
         count = access_matches()
-        bdd.when("I access all matches", count)
 
         # Then
-        bdd.then("should have over 20000 matches", count > 20000)
-        bdd.then("access time should be under 1ms", metrics.avg_time < 0.001)
+        assert count > 20000, "Should have over 20000 matches"
+        assert metrics.avg_time < 0.001, "Access time should be under 1ms"
 
         performance_results.append(metrics)
         print(f"\n{metrics}")
@@ -205,7 +202,7 @@ class TestRuVectorPerformance:
     """
 
     @pytest.mark.performance
-    def test_vector_store_initialization(self, bdd, performance_results):
+    def test_vector_store_initialization(self, performance_results):
         """
         Scenario: Measure vector store initialization time
 
@@ -215,8 +212,7 @@ class TestRuVectorPerformance:
         """
         from brazilian_soccer_mcp.vector_store import VectorStore, RuVectorConnectionError
 
-        # Given
-        bdd.given("the RuVector server is running", True)
+        # Given - RuVector server is running
 
         # When
         def init_store():
@@ -234,10 +230,9 @@ class TestRuVectorPerformance:
                 iterations=3,
                 warmup=1
             )
-            bdd.when("I initialize a new vector store", metrics)
 
             # Then
-            bdd.then("initialization should complete within 5 seconds", metrics.avg_time < 5.0)
+            assert metrics.avg_time < 5.0, "Initialization should complete within 5 seconds"
 
             performance_results.append(metrics)
             print(f"\n{metrics}")
@@ -245,7 +240,7 @@ class TestRuVectorPerformance:
             pytest.skip(f"RuVector not available: {e}")
 
     @pytest.mark.performance
-    def test_vector_search_latency(self, vector_store, bdd, performance_results):
+    def test_vector_search_latency(self, vector_store, performance_results):
         """
         Scenario: Measure vector similarity search latency
 
@@ -255,8 +250,8 @@ class TestRuVectorPerformance:
         And 95th percentile should be under 200ms
         """
         # Given
-        bdd.given("a populated vector store", vector_store is not None)
-        bdd.given("vector store has entries", vector_store.size > 0)
+        assert vector_store is not None, "Vector store should be populated"
+        assert vector_store.size > 0, "Vector store should have entries"
 
         # When
         test_queries = [
@@ -284,11 +279,9 @@ class TestRuVectorPerformance:
         avg_search_time = statistics.mean(all_times)
         max_search_time = max(all_times)
 
-        bdd.when("I perform similarity searches", len(test_queries))
-
         # Then
-        bdd.then("search latency should be under 100ms average", avg_search_time < 0.1)
-        bdd.then("max search time should be under 200ms", max_search_time < 0.2)
+        assert avg_search_time < 0.1, "Search latency should be under 100ms average"
+        assert max_search_time < 0.2, "Max search time should be under 200ms"
 
         search_metrics = PerformanceMetrics(
             operation="Vector Search (Aggregate)",
@@ -316,7 +309,7 @@ class TestQueryHandlerPerformance:
     """
 
     @pytest.mark.performance
-    def test_match_search_performance(self, query_handler, bdd, performance_results):
+    def test_match_search_performance(self, query_handler, performance_results):
         """
         Scenario: Measure match search query performance
 
@@ -325,7 +318,7 @@ class TestQueryHandlerPerformance:
         Then average response time should be under 500ms
         """
         # Given
-        bdd.given("the query handler is initialized", query_handler is not None)
+        assert query_handler is not None, "Query handler should be initialized"
 
         # When - test different query types
         queries = [
@@ -347,10 +340,9 @@ class TestQueryHandlerPerformance:
             all_metrics.append(metrics)
 
         avg_time = statistics.mean([m.avg_time for m in all_metrics])
-        bdd.when("I execute various match searches", len(queries))
 
         # Then
-        bdd.then("average response time should be under 500ms", avg_time < 0.5)
+        assert avg_time < 0.5, "Average response time should be under 500ms"
 
         aggregate = PerformanceMetrics(
             operation="Match Search (All Variants)",
@@ -368,7 +360,7 @@ class TestQueryHandlerPerformance:
         print(f"\n{aggregate}")
 
     @pytest.mark.performance
-    def test_player_search_performance(self, query_handler, bdd, performance_results):
+    def test_player_search_performance(self, query_handler, performance_results):
         """
         Scenario: Measure player search query performance
 
@@ -377,7 +369,7 @@ class TestQueryHandlerPerformance:
         Then average response time should be under 500ms
         """
         # Given
-        bdd.given("the query handler is initialized", query_handler is not None)
+        assert query_handler is not None, "Query handler should be initialized"
 
         # When
         queries = [
@@ -399,10 +391,9 @@ class TestQueryHandlerPerformance:
             all_metrics.append(metrics)
 
         avg_time = statistics.mean([m.avg_time for m in all_metrics])
-        bdd.when("I execute various player searches", len(queries))
 
         # Then
-        bdd.then("average response time should be under 500ms", avg_time < 0.5)
+        assert avg_time < 0.5, "Average response time should be under 500ms"
 
         aggregate = PerformanceMetrics(
             operation="Player Search (All Variants)",
@@ -420,7 +411,7 @@ class TestQueryHandlerPerformance:
         print(f"\n{aggregate}")
 
     @pytest.mark.performance
-    def test_team_stats_performance(self, query_handler, bdd, performance_results):
+    def test_team_stats_performance(self, query_handler, performance_results):
         """
         Scenario: Measure team statistics query performance
 
@@ -429,7 +420,7 @@ class TestQueryHandlerPerformance:
         Then average response time should be under 1 second
         """
         # Given
-        bdd.given("the query handler is initialized", query_handler is not None)
+        assert query_handler is not None, "Query handler should be initialized"
 
         # When
         queries = [
@@ -451,10 +442,9 @@ class TestQueryHandlerPerformance:
             all_metrics.append(metrics)
 
         avg_time = statistics.mean([m.avg_time for m in all_metrics])
-        bdd.when("I calculate team statistics", len(queries))
 
         # Then
-        bdd.then("average response time should be under 1 second", avg_time < 1.0)
+        assert avg_time < 1.0, "Average response time should be under 1 second"
 
         aggregate = PerformanceMetrics(
             operation="Team Stats (All Variants)",
@@ -472,7 +462,7 @@ class TestQueryHandlerPerformance:
         print(f"\n{aggregate}")
 
     @pytest.mark.performance
-    def test_head_to_head_performance(self, query_handler, bdd, performance_results):
+    def test_head_to_head_performance(self, query_handler, performance_results):
         """
         Scenario: Measure head-to-head query performance
 
@@ -481,7 +471,7 @@ class TestQueryHandlerPerformance:
         Then average response time should be under 1 second
         """
         # Given
-        bdd.given("the query handler is initialized", query_handler is not None)
+        assert query_handler is not None, "Query handler should be initialized"
 
         # When
         queries = [
@@ -503,10 +493,9 @@ class TestQueryHandlerPerformance:
             all_metrics.append(metrics)
 
         avg_time = statistics.mean([m.avg_time for m in all_metrics])
-        bdd.when("I calculate head-to-head statistics", len(queries))
 
         # Then
-        bdd.then("average response time should be under 1 second", avg_time < 1.0)
+        assert avg_time < 1.0, "Average response time should be under 1 second"
 
         aggregate = PerformanceMetrics(
             operation="Head-to-Head (All Derbies)",
@@ -524,7 +513,7 @@ class TestQueryHandlerPerformance:
         print(f"\n{aggregate}")
 
     @pytest.mark.performance
-    def test_standings_calculation_performance(self, query_handler, bdd, performance_results):
+    def test_standings_calculation_performance(self, query_handler, performance_results):
         """
         Scenario: Measure standings calculation performance
 
@@ -533,7 +522,7 @@ class TestQueryHandlerPerformance:
         Then average response time should be under 2 seconds
         """
         # Given
-        bdd.given("the query handler is initialized", query_handler is not None)
+        assert query_handler is not None, "Query handler should be initialized"
 
         # When
         queries = [
@@ -555,10 +544,9 @@ class TestQueryHandlerPerformance:
             all_metrics.append(metrics)
 
         avg_time = statistics.mean([m.avg_time for m in all_metrics])
-        bdd.when("I calculate league standings for multiple seasons", len(queries))
 
         # Then
-        bdd.then("average response time should be under 2 seconds", avg_time < 2.0)
+        assert avg_time < 2.0, "Average response time should be under 2 seconds"
 
         aggregate = PerformanceMetrics(
             operation="Standings Calculation (5 Seasons)",
@@ -576,7 +564,7 @@ class TestQueryHandlerPerformance:
         print(f"\n{aggregate}")
 
     @pytest.mark.performance
-    def test_statistics_query_performance(self, query_handler, bdd, performance_results):
+    def test_statistics_query_performance(self, query_handler, performance_results):
         """
         Scenario: Measure statistical analysis performance
 
@@ -585,7 +573,7 @@ class TestQueryHandlerPerformance:
         Then average response time should be under 2 seconds
         """
         # Given
-        bdd.given("the query handler is initialized", query_handler is not None)
+        assert query_handler is not None, "Query handler should be initialized"
 
         # When
         queries = [
@@ -607,10 +595,9 @@ class TestQueryHandlerPerformance:
             all_metrics.append(metrics)
 
         avg_time = statistics.mean([m.avg_time for m in all_metrics])
-        bdd.when("I execute statistical queries", len(queries))
 
         # Then
-        bdd.then("average response time should be under 2 seconds", avg_time < 2.0)
+        assert avg_time < 2.0, "Average response time should be under 2 seconds"
 
         aggregate = PerformanceMetrics(
             operation="Statistics (All Types)",
@@ -638,7 +625,7 @@ class TestEndToEndPerformance:
     """
 
     @pytest.mark.performance
-    def test_user_scenario_team_analysis(self, query_handler, bdd, performance_results):
+    def test_user_scenario_team_analysis(self, query_handler, performance_results):
         """
         Scenario: Complete team analysis workflow
 
@@ -646,8 +633,7 @@ class TestEndToEndPerformance:
         When they execute a complete analysis workflow
         Then the entire workflow should complete within 5 seconds
         """
-        # Given
-        bdd.given("a user wants to analyze Flamengo's 2019 season", True)
+        # Given - user wants to analyze Flamengo's 2019 season
 
         # When - simulate complete user workflow
         def complete_workflow():
@@ -679,16 +665,15 @@ class TestEndToEndPerformance:
             iterations=5,
             warmup=1
         )
-        bdd.when("they execute a complete analysis workflow", metrics)
 
         # Then
-        bdd.then("entire workflow should complete within 5 seconds", metrics.avg_time < 5.0)
+        assert metrics.avg_time < 5.0, "Entire workflow should complete within 5 seconds"
 
         performance_results.append(metrics)
         print(f"\n{metrics}")
 
     @pytest.mark.performance
-    def test_user_scenario_derby_comparison(self, query_handler, bdd, performance_results):
+    def test_user_scenario_derby_comparison(self, query_handler, performance_results):
         """
         Scenario: Derby comparison workflow
 
@@ -696,8 +681,7 @@ class TestEndToEndPerformance:
         When they analyze multiple derbies
         Then the comparison should complete within 10 seconds
         """
-        # Given
-        bdd.given("a user wants to compare classic Brazilian derbies", True)
+        # Given - user wants to compare classic Brazilian derbies
 
         # When
         def derby_comparison():
@@ -723,16 +707,15 @@ class TestEndToEndPerformance:
             iterations=3,
             warmup=1
         )
-        bdd.when("they analyze multiple derbies", metrics)
 
         # Then
-        bdd.then("comparison should complete within 10 seconds", metrics.avg_time < 10.0)
+        assert metrics.avg_time < 10.0, "Comparison should complete within 10 seconds"
 
         performance_results.append(metrics)
         print(f"\n{metrics}")
 
     @pytest.mark.performance
-    def test_user_scenario_player_scouting(self, query_handler, bdd, performance_results):
+    def test_user_scenario_player_scouting(self, query_handler, performance_results):
         """
         Scenario: Player scouting workflow
 
@@ -740,8 +723,7 @@ class TestEndToEndPerformance:
         When they execute scouting queries
         Then the scouting workflow should complete within 3 seconds
         """
-        # Given
-        bdd.given("a scout wants to find top Brazilian talent", True)
+        # Given - scout wants to find top Brazilian talent
 
         # When
         def scouting_workflow():
@@ -780,10 +762,9 @@ class TestEndToEndPerformance:
             iterations=5,
             warmup=1
         )
-        bdd.when("they execute scouting queries", metrics)
 
         # Then
-        bdd.then("scouting workflow should complete within 3 seconds", metrics.avg_time < 3.0)
+        assert metrics.avg_time < 3.0, "Scouting workflow should complete within 3 seconds"
 
         performance_results.append(metrics)
         print(f"\n{metrics}")
@@ -799,7 +780,7 @@ class TestPerformanceSummary:
     """
 
     @pytest.mark.performance
-    def test_generate_performance_report(self, performance_results, bdd):
+    def test_generate_performance_report(self, performance_results):
         """
         Scenario: Generate final performance report
 
@@ -808,7 +789,7 @@ class TestPerformanceSummary:
         Then I should see all metrics in a formatted report
         """
         # Given
-        bdd.given("all performance tests have run", len(performance_results) > 0)
+        assert len(performance_results) > 0, "All performance tests should have run"
 
         # When
         report_lines = [
@@ -842,10 +823,9 @@ class TestPerformanceSummary:
         ])
 
         report = "\n".join(report_lines)
-        bdd.when("I generate the summary report", report)
 
         # Then
-        bdd.then("should have metrics", len(performance_results) > 0)
+        assert len(performance_results) > 0, "Should have metrics"
 
         print(report)
 
